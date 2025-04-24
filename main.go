@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -60,53 +59,41 @@ func fetchIcalData(username, password string) string {
 	// Log in with the client and get the session cookie
 	session := login(client, username, password)
 
-	// Setup concurrent requests
-	var wg sync.WaitGroup
 	icsChan := make(chan string, 64)
 
 	for i := -3; i < 8; i++ {
 		month := time.Now().AddDate(0, i, 0).Format("2006-01")
 		date := "Y" + strings.ReplaceAll(month, "-", "M")
 
-		// Create a new goroutine for each month
-		wg.Add(1)
+		form := url.Values{
+			"APPNAME":   {"CampusNet"},
+			"PRGNAME":   {"SCHEDULER_EXPORT_START"},
+			"ARGUMENTS": {"sessionno,menuid,date"},
+			"sessionno": {session},
+			"menuid":    {"000272"},
+			"date":      {date},
+			"month":     {date},
+			"week":      {"0"},
+		}
 
-		go func(month string) {
-			form := url.Values{
-				"APPNAME":   {"CampusNet"},
-				"PRGNAME":   {"SCHEDULER_EXPORT_START"},
-				"ARGUMENTS": {"sessionno,menuid,date"},
-				"sessionno": {session},
-				"menuid":    {"000272"},
-				"date":      {date},
-				"month":     {date},
-				"week":      {"0"},
-			}
+		// Get the iCalendar file
+		ics, err := getIcalendar(client, form)
+		if err != nil {
+			log.Printf("Error getting iCalendar for %s: %v", month, err)
+			continue
+		}
+		if ics == "" {
+			log.Printf("No iCalendar data for %s", month)
+			continue
+		}
 
-			// Get the iCalendar file
-			ics, err := getIcalendar(client, form)
-			if err != nil {
-				log.Printf("Error getting iCalendar for %s: %v", month, err)
-				wg.Done()
-				return
-			}
-			if ics == "" {
-				log.Printf("No iCalendar data for %s", month)
-				wg.Done()
-				return
-			}
+		fmt.Printf("Got iCalendar for %s\n", month)
 
-			fmt.Printf("Got iCalendar for %s\n", month)
-
-			// Send the iCalendar data to the channel
-			icsChan <- ics
-
-			wg.Done()
-		}(month)
+		// Send the iCalendar data to the channel
+		icsChan <- ics
 	}
 
-	// Close the channel when all goroutines are done
-	wg.Wait()
+	// Close the channel after processing all months
 	close(icsChan)
 
 	// Collect all iCalendar data from the channel
@@ -131,14 +118,38 @@ func runWebServer(username, password string, mergedCalendar *string) {
 	// Serve the merged calendar
 	http.HandleFunc("/calendar.ics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/calendar")
-		w.Write([]byte(*mergedCalendar))
+		data, err := os.ReadFile("merged_calendar.ics")
+		if err != nil {
+			http.Error(w, "Failed to read calendar file", http.StatusInternalServerError)
+			return
+		}
+		w.Write(data)
 	})
+
+	// Add a health check endpoint
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
 	fmt.Printf("\nServing iCalendar at http://localhost:%s/calendar.ics\n\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
 func startCalendarUpdater(username, password string, mergedCalendar *string) {
-	ticker := time.NewTicker(1 * time.Minute)
+	// Get the update interval from the environment variable, default to 2 hours
+	intervalStr := os.Getenv("UPDATE_INTERVAL")
+	interval := 2 * time.Hour
+	if intervalStr != "" {
+		parsedInterval, err := time.ParseDuration(intervalStr)
+		if err != nil {
+			log.Printf("Invalid UPDATE_INTERVAL format, using default 2h: %v", err)
+		} else {
+			interval = parsedInterval
+		}
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
