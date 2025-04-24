@@ -122,13 +122,19 @@ func runWebServer(username, password string, mergedCalendar *string) {
 	// Start a goroutine to update the merged calendar every hour
 	go startCalendarUpdater(username, password, mergedCalendar)
 
+	// Get the server port from the environment variable, default to 8080
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	// Serve the merged calendar
 	http.HandleFunc("/calendar.ics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/calendar")
 		w.Write([]byte(*mergedCalendar))
 	})
-	fmt.Println("Serving iCalendar at http://localhost:8080/calendar.ics")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	fmt.Printf("\nServing iCalendar at http://localhost:%s/calendar.ics\n\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
 func startCalendarUpdater(username, password string, mergedCalendar *string) {
