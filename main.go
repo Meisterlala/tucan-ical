@@ -26,8 +26,6 @@ const (
 )
 
 func main() {
-	var icsContents []string
-
 	// Load environment variables from .env file
 	err := godotenv.Load()
 	if err != nil {
@@ -40,6 +38,20 @@ func main() {
 	if username == "" || password == "" {
 		log.Fatal("Please set TUCAN_USERNAME and TUCAN_PASSWORD environment variables")
 	}
+
+	// Fetch initial iCalendar data
+	mergedCalendar := fetchIcalData(username, password)
+
+	// Save merged calendar to a file
+	os.WriteFile("merged_calendar.ics", []byte(mergedCalendar), 0644)
+	fmt.Println("Saved merged_calendar.ics")
+
+	// Start the web server to serve the merged calendar and update it every hour
+	runWebServer(username, password, &mergedCalendar)
+}
+
+func fetchIcalData(username, password string) string {
+	var icsContents []string
 
 	// Create a new client with a cookie jar
 	jar, _ := cookiejar.New(nil)
@@ -57,8 +69,6 @@ func main() {
 		date := "Y" + strings.ReplaceAll(month, "-", "M")
 
 		// Create a new goroutine for each month
-		// This will allow us to download multiple calendars concurrently
-		// We use a wait group to wait for all goroutines to finish
 		wg.Add(1)
 
 		go func(month string) {
@@ -105,9 +115,33 @@ func main() {
 	}
 
 	// Merge all .ics files
-	merged := mergeIcs(icsContents)
-	os.WriteFile("merged_calendar.ics", []byte(merged), 0644)
-	fmt.Println("Saved merged_calendar.ics")
+	return mergeIcs(icsContents)
+}
+
+func runWebServer(username, password string, mergedCalendar *string) {
+	// Start a goroutine to update the merged calendar every hour
+	go startCalendarUpdater(username, password, mergedCalendar)
+
+	// Serve the merged calendar
+	http.HandleFunc("/calendar.ics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/calendar")
+		w.Write([]byte(*mergedCalendar))
+	})
+	fmt.Println("Serving iCalendar at http://localhost:8080/calendar.ics")
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func startCalendarUpdater(username, password string, mergedCalendar *string) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		<-ticker.C
+		fmt.Println("Updating merged calendar...")
+		*mergedCalendar = fetchIcalData(username, password)
+		os.WriteFile("merged_calendar.ics", []byte(*mergedCalendar), 0644)
+		fmt.Println("Updated merged_calendar.ics")
+	}
 }
 
 func login(client *http.Client, username, password string) string {
@@ -225,7 +259,7 @@ func getIcalendar(client *http.Client, values url.Values) (string, error) {
 	}
 
 	if noEvents(string(body)) {
-		return "", fmt.Errorf("no events in %s", values.Get("date"))
+		return "", fmt.Errorf("no events")
 	}
 
 	link := extractFiletransferLink(string(body))
