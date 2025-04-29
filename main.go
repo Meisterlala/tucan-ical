@@ -28,7 +28,7 @@ func main() {
 	// Load environment variables from .env file
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		log.Println("Warning: .env file not found, proceeding without it")
 	}
 
 	// Pull username and password from environment variables
@@ -116,7 +116,7 @@ func runWebServer(username, password string, mergedCalendar *string) {
 	}
 
 	// Serve the merged calendar
-	http.HandleFunc("/calendar.ics", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/tucan.ics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/calendar")
 		data, err := os.ReadFile("merged_calendar.ics")
 		if err != nil {

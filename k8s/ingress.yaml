@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tucan-ical
+  namespace: tucan-ical
+spec:
+  rules:
+    - host: meisterlala.dev
+      http:
+        paths:
+          - path: /tucan.ics
+            pathType: Prefix
+            backend:
+              service:
+                name: tucan-ical
+                port:
+                  number: 8080

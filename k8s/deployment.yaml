@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tucan-ical
+  namespace: tucan-ical
+  labels:
+    app: tucan-ical
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tucan-ical
+  template:
+    metadata:
+      labels:
+        app: tucan-ical
+    spec:
+      containers:
+      - name: tucan-ical
+        image: registry.meisterlala.dev/tucan-ical:0.1.1
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 60
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "250m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        env:
+        - name: TUCAN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: tucan-credentials
+              key: username
+        - name: TUCAN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tucan-credentials
+              key: password
+        - name: PORT
+          value: "8080"
+        - name: UPDATE_INTERVAL
+          value: "2h"
