@@ -21,7 +21,7 @@ import (
 const (
 	baseURL     = "https://www.tucan.tu-darmstadt.de"
 	loginScript = "https://www.tucan.tu-darmstadt.de/scripts/mgrqispi.dll"
-	userAgent   = "Mozilla/5.0"
+	userAgent   = "TUCaN iCalendar Extractor/1.0"
 )
 
 func main() {
@@ -207,10 +207,18 @@ func login(client *http.Client, username, password string) string {
 	}
 	// If we don't find the session cookie, log an error
 	if cookie == "" {
+		// Print request
+		log.Printf("Request URL: %s", req.URL.String())
+		log.Printf("Request body: %s", form.Encode())
+		log.Printf("Request headers: %v", req.Header)
+		// Print the response body, headers, and status code for debugging
+		log.Printf("Response body: %s", string(body))
+		log.Printf("Response headers: %v", resp.Header)
+		log.Printf("HTTP status code: %d", resp.StatusCode)
 		log.Fatal("Login failed: no session cookie received")
 	}
 
-	log.Printf("Succesfully got cookie: %s", cookie)
+	log.Printf("Successfully got cookie: %s", cookie)
 
 	// Check for Refresh header and follow the redirect if present
 	if refreshHeader := resp.Header.Get("Refresh"); refreshHeader != "" {
@@ -271,10 +279,14 @@ func getIcalendar(client *http.Client, values url.Values) (string, error) {
 	body, _ := io.ReadAll(resp.Body)
 	//log.Printf("Response for month %s: %s", date, string(body))
 
+	// Log the response body, headers, and status code if access is denied
 	if accessDenied(string(body)) {
+		log.Printf("Access denied. Response body: %s", string(body))
+		log.Printf("Response headers: %v", resp.Header)
 		return "", fmt.Errorf("access denied")
 	}
 
+	// Log the response body, headers, and status code if no events are found
 	if noEvents(string(body)) {
 		return "", fmt.Errorf("no events")
 	}
