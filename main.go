@@ -25,6 +25,9 @@ const (
 )
 
 func main() {
+	// Wait until the server is reachable
+	waitForTucan(baseURL)
+
 	// Load environment variables from .env file
 	err := godotenv.Load()
 	if err != nil {
@@ -47,6 +50,23 @@ func main() {
 
 	// Start the web server to serve the merged calendar and update it every hour
 	runWebServer(username, password, &mergedCalendar)
+}
+
+func waitForTucan(url string) {
+	for {
+		resp, err := http.Get(url)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			fmt.Println("Server is reachable, proceeding...")
+			return
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+
+		fmt.Printf("Can't connect to %s, Response Code: %d waiting for server to become reachable...\n", url, resp.StatusCode)
+		time.Sleep(10 * time.Second)
+	}
 }
 
 func fetchIcalData(username, password string) string {
