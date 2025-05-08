@@ -25,6 +25,6 @@ docker buildx build --platform $platforms -t "${imageName}:${newVersion}" -t "${
 Write-Host "Build and push completed successfully."
 
 # Push new Tags
-git tag $newVersion
+git tag $newVersion -m "Release version $newVersion"
 git push origin $newVersion
 Write-Host "Pushed new tag: $newVersion"
