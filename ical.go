@@ -141,8 +141,8 @@ func login(client *http.Client, username, password string) (string, error) {
 
 	defer resp.Body.Close()
 
-	// Check if we got redirected, then it means that tucan is down
-	if resp.Request.URL.String() != "https://www.tucan.tu-darmstadt.de/" {
+	// Check if we got redirected, then the service might be down
+	if resp.Request.URL.String() != loginScript {
 		return "", fmt.Errorf("unexpected redirect to %s, service may be down", resp.Request.URL.String())
 	}
 
