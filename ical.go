@@ -22,10 +22,12 @@ import (
 var lastNewestCalendarGetOK atomic.Bool
 
 var errNoEvents = errors.New("no events")
+var errInvalidCredentials = errors.New("incorrect username or password")
 
 func startCalendarUpdater(username, password string, update_interval time.Duration) {
 	ticker := time.NewTicker(update_interval)
 	icals := make(map[string]string)
+	consecutiveInvalidLogins := 0
 
 	defer ticker.Stop()
 
@@ -33,7 +35,22 @@ func startCalendarUpdater(username, password string, update_interval time.Durati
 		log.Println("Updating calendar...")
 
 		// Fetch iCalendar data
-		newIcals := fetchIcalData(username, password)
+		newIcals, err := fetchIcalData(username, password)
+		if err != nil {
+			if errors.Is(err, errInvalidCredentials) {
+				consecutiveInvalidLogins++
+				if consecutiveInvalidLogins >= 2 {
+					log.Printf("Login failed twice in a row with invalid credentials, exiting: %v", err)
+					os.Exit(1)
+				}
+			} else {
+				consecutiveInvalidLogins = 0
+			}
+
+			<-ticker.C
+			continue
+		}
+		consecutiveInvalidLogins = 0
 
 		// Overwrite existing iCalendar data with new data
 		for month, ics := range newIcals {
@@ -60,7 +77,7 @@ func startCalendarUpdater(username, password string, update_interval time.Durati
 	}
 }
 
-func fetchIcalData(username, password string) map[string]string {
+func fetchIcalData(username, password string) (map[string]string, error) {
 	icals := make(map[string]string)
 	lastNewestCalendarGetOK.Store(false)
 
@@ -72,7 +89,8 @@ func fetchIcalData(username, password string) map[string]string {
 	session, err := login(client, username, password)
 	if err != nil {
 		log.Printf("Login failed: %v", err)
-		return icals
+		lastNewestCalendarGetOK.Store(false)
+		return icals, err
 	}
 
 	const newestMonthOffset = 7
@@ -118,7 +136,7 @@ func fetchIcalData(username, password string) map[string]string {
 		icals[month] = ics
 	}
 
-	return icals
+	return icals, nil
 }
 
 func login(client *http.Client, username, password string) (string, error) {
@@ -152,7 +170,7 @@ func login(client *http.Client, username, password string) (string, error) {
 	// Check for incorrect login
 	body, _ := io.ReadAll(resp.Body)
 	if incorectLogin(string(body)) {
-		return "", errors.New("incorrect username or password")
+		return "", errInvalidCredentials
 	}
 
 	defer resp.Body.Close()
