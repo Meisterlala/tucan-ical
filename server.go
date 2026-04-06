@@ -27,6 +27,11 @@ func httpTucan(w http.ResponseWriter, r *http.Request) {
 
 // Health check endpoint
 func httpHealth(w http.ResponseWriter, r *http.Request) {
+	if !lastNewestCalendarGetOK.Load() {
+		http.Error(w, "NOT OK", http.StatusServiceUnavailable)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }

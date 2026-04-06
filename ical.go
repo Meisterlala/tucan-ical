@@ -11,12 +11,17 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/html"
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 )
+
+var lastNewestCalendarGetOK atomic.Bool
+
+var errNoEvents = errors.New("no events")
 
 func startCalendarUpdater(username, password string, update_interval time.Duration) {
 	ticker := time.NewTicker(update_interval)
@@ -57,6 +62,7 @@ func startCalendarUpdater(username, password string, update_interval time.Durati
 
 func fetchIcalData(username, password string) map[string]string {
 	icals := make(map[string]string)
+	lastNewestCalendarGetOK.Store(false)
 
 	// Create a new client with a cookie jar
 	jar, _ := cookiejar.New(nil)
@@ -69,7 +75,8 @@ func fetchIcalData(username, password string) map[string]string {
 		return icals
 	}
 
-	for i := -3; i < 8; i++ {
+	const newestMonthOffset = 7
+	for i := -3; i <= newestMonthOffset; i++ {
 		month := time.Now().AddDate(0, i, 0).Format("2006-01")
 		date := "Y" + strings.ReplaceAll(month, "-", "M")
 
@@ -87,12 +94,21 @@ func fetchIcalData(username, password string) map[string]string {
 		// Get the iCalendar file
 		ics, err := getIcalendar(client, form)
 		if err != nil {
+			if i == newestMonthOffset {
+				lastNewestCalendarGetOK.Store(errors.Is(err, errNoEvents))
+			}
 			log.Printf("Error getting iCalendar for %s: %v", month, err)
 			continue
 		}
 		if ics == "" {
+			if i == newestMonthOffset {
+				lastNewestCalendarGetOK.Store(false)
+			}
 			log.Printf("No iCalendar data for %s", month)
 			continue
+		}
+		if i == newestMonthOffset {
+			lastNewestCalendarGetOK.Store(true)
 		}
 
 		event_count := countEvents(ics)
@@ -226,7 +242,7 @@ func getIcalendar(client *http.Client, values url.Values) (string, error) {
 
 	// Log the response body, headers, and status code if no events are found
 	if noEvents(string(body)) {
-		return "", errors.New("no events")
+		return "", errNoEvents
 	}
 
 	link := extractFiletransferLink(string(body))
