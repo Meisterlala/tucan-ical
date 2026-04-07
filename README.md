@@ -54,7 +54,7 @@ docker build -t tucan-ical .
 You can pass environment variables to the Docker container and run it.
 
 ```bash
-docker run -p 8080:8080 -e TUCAN_USERNAME=abc -e TUCAN_PASSWORD=123 tucan-ical
+docker run -p 8080:8080 -e TUCAN_USERNAME=abc -e TUCAN_PASSWORD=123 -e TUCAN_TOTP=BASE32SECRET tucan-ical
 ```
 
 You can then look at the exported .ical at `localhost:8080/tucan.ics`

@@ -24,7 +24,7 @@ var lastNewestCalendarGetOK atomic.Bool
 var errNoEvents = errors.New("no events")
 var errInvalidCredentials = errors.New("incorrect username or password")
 
-func startCalendarUpdater(username, password string, update_interval time.Duration) {
+func startCalendarUpdater(username, password, totpSeed string, update_interval time.Duration) {
 	ticker := time.NewTicker(update_interval)
 	icals := make(map[string]string)
 	consecutiveInvalidLogins := 0
@@ -35,7 +35,7 @@ func startCalendarUpdater(username, password string, update_interval time.Durati
 		log.Println("Updating calendar...")
 
 		// Fetch iCalendar data
-		newIcals, err := fetchIcalData(username, password)
+		newIcals, err := fetchIcalData(username, password, totpSeed)
 		if err != nil {
 			if errors.Is(err, errInvalidCredentials) {
 				consecutiveInvalidLogins++
@@ -77,7 +77,7 @@ func startCalendarUpdater(username, password string, update_interval time.Durati
 	}
 }
 
-func fetchIcalData(username, password string) (map[string]string, error) {
+func fetchIcalData(username, password, totpSeed string) (map[string]string, error) {
 	icals := make(map[string]string)
 	lastNewestCalendarGetOK.Store(false)
 
@@ -86,7 +86,7 @@ func fetchIcalData(username, password string) (map[string]string, error) {
 	client := &http.Client{Jar: jar}
 
 	// Log in with the client and get the session cookie
-	session, err := login(client, username, password)
+	session, err := login(client, username, password, totpSeed)
 	if err != nil {
 		log.Printf("Login failed: %v", err)
 		lastNewestCalendarGetOK.Store(false)
@@ -139,7 +139,10 @@ func fetchIcalData(username, password string) (map[string]string, error) {
 	return icals, nil
 }
 
-func login(client *http.Client, username, password string) (string, error) {
+func login(client *http.Client, username, password, totpSeed string) (string, error) {
+	totp := calculate_totp(totpSeed)
+	_ = totp
+
 	form := url.Values{
 		"usrname":   {username},
 		"pass":      {password},
@@ -374,6 +377,10 @@ func incorectLogin(body string) bool {
 
 func noEvents(body string) bool {
 	return strings.Contains(body, "<td class=\"tbdata_error\">Die Kalenderdatei konnte nicht erstellt werden, weil im gewählten Zeitraum keine Termine vorhanden sind.</td>")
+}
+
+func calculate_totp(staticCode string) string {
+	return ""
 }
 
 func countEvents(ical string) int {

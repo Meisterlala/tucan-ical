@@ -53,8 +53,12 @@ spec:
                 secretKeyRef:
                   name: tucan-credentials
                   key: password
+            - name: TUCAN_TOTP
+              valueFrom:
+                secretKeyRef:
+                  name: tucan-credentials
+                  key: totp
             - name: PORT
               value: "8080"
             - name: UPDATE_INTERVAL
               value: "2h"
-

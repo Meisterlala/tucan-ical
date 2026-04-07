@@ -30,11 +30,12 @@ func main() {
 	}
 	go runWebServer(port)
 
-	// Pull username and password from environment variables
+	// Pull username, password and static TOTP seed from environment variables
 	username := os.Getenv("TUCAN_USERNAME")
 	password := os.Getenv("TUCAN_PASSWORD")
-	if username == "" || password == "" {
-		log.Fatal("Please set TUCAN_USERNAME and TUCAN_PASSWORD environment variables")
+	totpSeed := os.Getenv("TUCAN_TOTP")
+	if username == "" || password == "" || totpSeed == "" {
+		log.Fatal("Please set TUCAN_USERNAME, TUCAN_PASSWORD and TUCAN_TOTP environment variables")
 	}
 
 	// Get the update interval from the environment variable, default to 2 hours
@@ -50,7 +51,7 @@ func main() {
 	}
 
 	// Fetch the iCalendar data
-	go startCalendarUpdater(username, password, interval)
+	go startCalendarUpdater(username, password, totpSeed, interval)
 
 	select {}
 }
