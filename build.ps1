@@ -1,3 +1,4 @@
+#!/usr/bin/env pwsh
 $ErrorActionPreference = "Stop"
 
 # Variables
@@ -12,7 +13,9 @@ docker buildx create --use --name tucan-builder --driver docker-container --boot
 
 # Fetch the latest version or initialize if not found
 $latestVersion = git describe --tags --abbrev=0 2>$null
-if (-Not $latestVersion) { $latestVersion = "0.1.0" }
+if (-Not $latestVersion)
+{ $latestVersion = "0.1.0" 
+}
 
 # Increment the version number
 $versionParts = $latestVersion -split '\.'
