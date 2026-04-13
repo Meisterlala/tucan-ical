@@ -155,7 +155,6 @@ func getIcalendar(client *http.Client, values url.Values) (string, error) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	//log.Printf("Response for month %s: %s", date, string(body))
 
 	// Log the response body, headers, and status code if access is denied
 	if accessDenied(string(body)) {

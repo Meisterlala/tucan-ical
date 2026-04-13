@@ -199,7 +199,10 @@ func login(client *http.Client, username, password, totpSeed, totpID string) (st
 		sessionID = extractCookieValueForURL(client, resp.Request.URL, "cnsc")
 	}
 	if sessionID == "" {
-		sessionID = extractCookieValue(client, loginScript, "cnsc")
+		fallbackURL, err := url.Parse(loginScript)
+		if err == nil {
+			sessionID = extractCookieValueForURL(client, fallbackURL, "cnsc")
+		}
 	}
 	if sessionID == "" {
 		return "", errorsWithBody("no session ID found after login", body)
@@ -467,15 +470,6 @@ func errorsWithBody(prefix, body string) error {
 
 func htmlUnescape(value string) string {
 	return html.UnescapeString(value)
-}
-
-func extractCookieValue(client *http.Client, rawURL, name string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-
-	return extractCookieValueForURL(client, u, name)
 }
 
 func extractCookieValueForURL(client *http.Client, u *url.URL, name string) string {
