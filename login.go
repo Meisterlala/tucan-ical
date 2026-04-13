@@ -24,12 +24,7 @@ func login(client *http.Client, username, password, totpSeed, totpID string) (st
 	debug := strings.EqualFold(os.Getenv("DEBUG_LOGIN"), "true")
 	manualClient := cloneClientNoRedirect(client)
 
-	resp, body, err := doRequest(manualClient, "GET", tucanAuthorizeURL, "", debug)
-	if err != nil {
-		return "", err
-	}
-
-	resp, body, err = followRedirects(manualClient, resp, body, 20, debug)
+	resp, body, err := doRequestAndFollowRedirects(manualClient, "GET", tucanAuthorizeURL, "", debug)
 	if err != nil {
 		return "", err
 	}
@@ -43,11 +38,7 @@ func login(client *http.Client, username, password, totpSeed, totpID string) (st
 			if debug {
 				log.Printf("login debug: following TU-ID SSO link: %s", ssoURL)
 			}
-			resp, body, err = doRequest(manualClient, "GET", ssoURL, "", debug)
-			if err != nil {
-				return "", err
-			}
-			resp, body, err = followRedirects(manualClient, resp, body, 20, debug)
+			resp, body, err = doRequestAndFollowRedirects(manualClient, "GET", ssoURL, "", debug)
 			if err != nil {
 				return "", err
 			}
@@ -56,10 +47,7 @@ func login(client *http.Client, username, password, totpSeed, totpID string) (st
 		}
 	}
 
-	csrf := extractInputValue(body, "csrf_token")
-	if csrf == "" {
-		csrf = extractInputValue(body, "__RequestVerificationToken")
-	}
+	csrf := extractCSRFToken(body)
 	if csrf == "" {
 		return "", errorsWithBody("missing csrf_token/__RequestVerificationToken on login page", body)
 	}
@@ -84,11 +72,7 @@ func login(client *http.Client, username, password, totpSeed, totpID string) (st
 		"_eventId_proceed": {""},
 	}
 
-	resp, body, err = doRequest(manualClient, "POST", loginURL, credentials.Encode(), debug)
-	if err != nil {
-		return "", err
-	}
-	resp, body, err = followRedirects(manualClient, resp, body, 20, debug)
+	resp, body, err = doRequestAndFollowRedirects(manualClient, "POST", loginURL, credentials.Encode(), debug)
 	if err != nil {
 		return "", err
 	}
@@ -106,7 +90,7 @@ func login(client *http.Client, username, password, totpSeed, totpID string) (st
 	}
 
 	if isSelectTokenPage(body) {
-		csrf = extractInputValue(body, "csrf_token")
+		csrf = extractCSRFToken(body)
 		if csrf == "" {
 			return "", errorsWithBody("missing csrf_token on token selection page", body)
 		}
@@ -121,14 +105,7 @@ func login(client *http.Client, username, password, totpSeed, totpID string) (st
 			return "", errorsWithBody("no token options found on token selection page", body)
 		}
 
-		desiredID := strings.TrimSpace(totpID)
-		if desiredID == "" {
-			// first available token
-			for id := range tokens {
-				desiredID = id
-				break
-			}
-		}
+		desiredID := chooseTokenID(tokens, totpID)
 		if _, ok := tokens[desiredID]; !ok {
 			var available []string
 			for id, name := range tokens {
@@ -146,11 +123,7 @@ func login(client *http.Client, username, password, totpSeed, totpID string) (st
 			"fudis_selected_token_ids_input": {desiredID},
 			"_eventId_proceed":               {""},
 		}
-		resp, body, err = doRequest(manualClient, "POST", selectionURL, selectForm.Encode(), debug)
-		if err != nil {
-			return "", err
-		}
-		resp, body, err = followRedirects(manualClient, resp, body, 20, debug)
+		resp, body, err = doRequestAndFollowRedirects(manualClient, "POST", selectionURL, selectForm.Encode(), debug)
 		if err != nil {
 			return "", err
 		}
@@ -191,24 +164,20 @@ func login(client *http.Client, username, password, totpSeed, totpID string) (st
 		}
 	}
 
-	sessionID := extractSessionID(body)
-	if sessionID == "" && resp != nil {
-		sessionID = extractSessionIDFromRefresh(resp.Header.Get("Refresh"))
-	}
-	if sessionID == "" && resp != nil {
-		sessionID = extractCookieValueForURL(client, resp.Request.URL, "cnsc")
-	}
-	if sessionID == "" {
-		fallbackURL, err := url.Parse(loginScript)
-		if err == nil {
-			sessionID = extractCookieValueForURL(client, fallbackURL, "cnsc")
-		}
-	}
+	sessionID := extractSessionIDFromLoginResult(client, resp, body)
 	if sessionID == "" {
 		return "", errorsWithBody("no session ID found after login", body)
 	}
 
 	return sessionID, nil
+}
+
+func doRequestAndFollowRedirects(client *http.Client, method, rawURL, body string, debug bool) (*http.Response, string, error) {
+	resp, responseBody, err := doRequest(client, method, rawURL, body, debug)
+	if err != nil {
+		return nil, "", err
+	}
+	return followRedirects(client, resp, responseBody, 20, debug)
 }
 
 func cloneClientNoRedirect(client *http.Client) *http.Client {
@@ -319,6 +288,14 @@ func extractFormAction(body string) string {
 	return ""
 }
 
+func extractCSRFToken(body string) string {
+	csrf := extractInputValue(body, "csrf_token")
+	if csrf != "" {
+		return csrf
+	}
+	return extractInputValue(body, "__RequestVerificationToken")
+}
+
 func detectTotpField(body string) string {
 	candidates := []string{
 		"fudis_otp_input",
@@ -413,6 +390,17 @@ func extractTokenOptions(body string) map[string]string {
 	return tokens
 }
 
+func chooseTokenID(tokens map[string]string, requestedID string) string {
+	requestedID = strings.TrimSpace(requestedID)
+	if requestedID != "" {
+		return requestedID
+	}
+	for id := range tokens {
+		return id
+	}
+	return ""
+}
+
 func extractSessionID(body string) string {
 	re := regexp.MustCompile(`(?is)<div[^>]*id=["']sessionId["'][^>]*>\s*([^<\s]+)\s*</div>`)
 	if m := re.FindStringSubmatch(body); len(m) == 2 {
@@ -429,8 +417,27 @@ func extractSessionIDFromRefresh(refresh string) string {
 	return ""
 }
 
+func extractSessionIDFromLoginResult(client *http.Client, resp *http.Response, body string) string {
+	if sessionID := extractSessionID(body); sessionID != "" {
+		return sessionID
+	}
+	if resp != nil {
+		if sessionID := extractSessionIDFromRefresh(resp.Header.Get("Refresh")); sessionID != "" {
+			return sessionID
+		}
+		if sessionID := extractCookieValueForURL(client, resp.Request.URL, "cnsc"); sessionID != "" {
+			return sessionID
+		}
+	}
+	fallbackURL, err := url.Parse(loginScript)
+	if err != nil {
+		return ""
+	}
+	return extractCookieValueForURL(client, fallbackURL, "cnsc")
+}
+
 func invalidCredentialsBody(body string) bool {
-	if incorectLogin(body) {
+	if incorrectLoginBody(body) {
 		return true
 	}
 	markers := []string{

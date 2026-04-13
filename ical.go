@@ -23,8 +23,8 @@ var lastNewestCalendarGetOK atomic.Bool
 var errNoEvents = errors.New("no events")
 var errInvalidCredentials = errors.New("incorrect username or password")
 
-func startCalendarUpdater(username, password, totpSeed, totpID string, update_interval time.Duration) {
-	ticker := time.NewTicker(update_interval)
+func startCalendarUpdater(username, password, totpSeed, totpID string, updateInterval time.Duration) {
+	ticker := time.NewTicker(updateInterval)
 	icals := make(map[string]string)
 	consecutiveInvalidLogins := 0
 
@@ -51,11 +51,9 @@ func startCalendarUpdater(username, password, totpSeed, totpID string, update_in
 		}
 		consecutiveInvalidLogins = 0
 
-		// Overwrite existing iCalendar data with new data
+		// Replace each month with the latest successful export.
 		for month, ics := range newIcals {
-			if _, exists := icals[month]; !exists {
-				icals[month] = ics
-			}
+			icals[month] = ics
 		}
 
 		// Merge iCalendar data
@@ -66,8 +64,11 @@ func startCalendarUpdater(username, password, totpSeed, totpID string, update_in
 		mergedCalendar := mergeIcs(calendarValues)
 
 		if len(calendarValues) > 0 {
-			os.WriteFile(icalFile, []byte(mergedCalendar), 0644)
-			log.Println("Updated ", icalFile)
+			if err := os.WriteFile(icalFile, []byte(mergedCalendar), 0644); err != nil {
+				log.Printf("Failed to write %s: %v", icalFile, err)
+			} else {
+				log.Println("Updated", icalFile)
+			}
 		} else {
 			log.Println("No calendar data to update")
 		}
@@ -139,10 +140,9 @@ func fetchIcalData(username, password, totpSeed, totpID string) (map[string]stri
 }
 
 func getIcalendar(client *http.Client, values url.Values) (string, error) {
-
 	req, err := http.NewRequest("POST", loginScript, strings.NewReader(values.Encode()))
 	if err != nil {
-		log.Fatal(err)
+		return "", err
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -154,7 +154,10 @@ func getIcalendar(client *http.Client, values url.Values) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
 
 	// Log the response body, headers, and status code if access is denied
 	if accessDenied(string(body)) {
@@ -180,12 +183,15 @@ func getIcalendar(client *http.Client, values url.Values) (string, error) {
 	}
 	defer icsResp.Body.Close()
 
-	icsData, _ := io.ReadAll(icsResp.Body)
+	icsData, err := io.ReadAll(icsResp.Body)
+	if err != nil {
+		return "", err
+	}
 
 	// Convert UTF-16 to UTF-8
-	utf8Data := UTF16ToUTF8(icsData)
-	if utf8Data == nil {
-		return "", errors.New("error converting UTF-16 to UTF-8")
+	utf8Data, err := utf16ToUTF8(icsData)
+	if err != nil {
+		return "", err
 	}
 
 	return string(utf8Data), nil
@@ -230,24 +236,21 @@ func mergeIcs(calendars []string) string {
 	return merged.String()
 }
 
-func UTF16ToUTF8(utf16 []byte) []byte {
-	// Convert UTF-16 to UTF-8
+func utf16ToUTF8(utf16 []byte) ([]byte, error) {
 	decoder := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder()
-
 	reader := transform.NewReader(bytes.NewReader(utf16), decoder)
-
 	utf8, err := io.ReadAll(reader)
 	if err != nil {
-		log.Fatalf("Error converting UTF-16 to UTF-8: %v", err)
+		return nil, err
 	}
-	return utf8
+	return utf8, nil
 }
 
 func accessDenied(body string) bool {
 	return strings.Contains(body, "<body class=\"access_denied\">")
 }
 
-func incorectLogin(body string) bool {
+func incorrectLoginBody(body string) bool {
 	return strings.Contains(body, "<p>Bitte versuchen Sie es erneut. Überprüfen Sie ggf. Ihre Zugangsdaten.</p>")
 }
 
